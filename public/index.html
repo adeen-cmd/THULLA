@@ -93,6 +93,24 @@ input[type=text]{background:rgba(0,0,0,.25);border:1px solid var(--line);border-
   transition:filter .25s;
 }
 .stand svg{display:block;width:clamp(34px,6vw,54px);height:auto}
+.stand .av{
+  display:block;width:clamp(36px,6.2vw,56px);height:clamp(36px,6.2vw,56px);
+  border-radius:50%;object-fit:cover;object-position:50% 26%;
+  border:2px solid rgba(200,150,62,.5);background:#0B0812;
+  box-shadow:0 8px 16px rgba(0,0,0,.55);
+}
+.seat3d.me .stand .av{border-color:var(--brass)}
+.avrow{display:flex;gap:10px;flex-wrap:wrap;margin:2px 0 18px}
+.avpick{
+  width:54px;height:54px;border-radius:50%;padding:0;overflow:hidden;
+  border:2px solid rgba(200,150,62,.25);opacity:.55;transition:opacity .15s,border-color .15s;
+}
+.avpick:hover{opacity:.85}
+.avpick[aria-pressed="true"]{border-color:var(--brass);opacity:1}
+.avpick img{width:100%;height:100%;object-fit:cover;object-position:50% 26%;display:block}
+.avpick.none{display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,.35)}
+.avpick.none svg{width:30px;height:auto}
+.roster .rav{width:22px;height:22px;border-radius:50%;object-fit:cover;object-position:50% 26%;flex:none}
 .body,.head{fill:#0B0812}
 .rim{fill:none;stroke:rgba(200,150,62,.45);stroke-width:2}
 .plate{
@@ -242,6 +260,8 @@ input[type=text]{background:rgba(0,0,0,.25);border:1px solid var(--line);border-
       <div class="codebig" id="lobbyCode">----</div>
       <button class="ghost" id="copyBtn">Copy invite link</button>
     </div>
+    <label class="f" id="avLabel">Pick a face</label>
+    <div class="avrow" id="avrow"></div>
     <div class="roster" id="roster"></div>
     <div style="display:flex;gap:8px;flex-wrap:wrap">
       <button class="ghost hostonly" id="addBotBtn">Add a bot</button>
@@ -409,6 +429,7 @@ socket.on("joined",function(d){
   try{localStorage.setItem("bhabhi.token",myToken)}catch(e){}
   if(history.replaceState) history.replaceState(null,"",location.pathname+"?r="+d.code);
   $("leaveBtn").classList.remove("hidden");
+  if(myAvatar) socket.emit("setAvatar",{id:myAvatar});
 });
 socket.on("nope",function(m){ err(myCode?"lobbyErr":"enterErr",m); });
 socket.on("state",function(st){ S=st; render(); });
@@ -434,6 +455,12 @@ function seatAngle(i,n,you){
 var FIG_RX=45, FIG_RY=43;     // where the people sit
 var CARD_RX=23, CARD_RY=21;   // where their played card lands
 
+function avatarUrl(seat){
+  var p=(S&&S.players||[]).find(function(x){return x.seat===seat});
+  if(!p||!p.avatar) return null;
+  var a=(S.avatars||[]).find(function(x){return x.id===p.avatar});
+  return a?a.url:null;
+}
 function figureSVG(){
   return '<svg viewBox="0 0 60 66" aria-hidden="true">'+
     '<ellipse class="body" cx="30" cy="61" rx="26" ry="9"/>'+
@@ -456,13 +483,58 @@ function render(){
   prevTurn=S.turn; prevPhase=S.phase;
 }
 
+var myAvatar=null;
+try{ myAvatar=localStorage.getItem("bhabhi.avatar")||null; }catch(e){}
+
+function renderAvatarPicker(){
+  var row=$("avrow"), list=S.avatars||[];
+  if(!list.length){
+    row.innerHTML=""; $("avLabel").classList.add("hidden"); row.classList.add("hidden");
+    return;
+  }
+  $("avLabel").classList.remove("hidden"); row.classList.remove("hidden");
+  var me=(S.players||[]).find(function(p){return p.seat===S.you});
+  var current=me?me.avatar:null;
+  // don't rebuild while the user is looking at it unless something changed
+  var sig=list.map(function(a){return a.id}).join("|")+"#"+current;
+  if(row.dataset.sig===sig) return;
+  row.dataset.sig=sig;
+  row.innerHTML="";
+
+  var none=document.createElement("button");
+  none.className="avpick none"; none.title="No picture";
+  none.setAttribute("aria-pressed", current?"false":"true");
+  none.innerHTML=figureSVG();
+  none.addEventListener("click",function(){ chooseAvatar(null); });
+  row.appendChild(none);
+
+  list.forEach(function(a){
+    var b=document.createElement("button");
+    b.className="avpick"; b.title=a.id;
+    b.setAttribute("aria-pressed", current===a.id?"true":"false");
+    b.innerHTML='<img src="'+esc(a.url)+'" alt="'+esc(a.id)+'">';
+    b.addEventListener("click",function(){ chooseAvatar(a.id); });
+    row.appendChild(b);
+  });
+}
+
+function chooseAvatar(id){
+  myAvatar=id;
+  try{ if(id) localStorage.setItem("bhabhi.avatar",id); else localStorage.removeItem("bhabhi.avatar"); }catch(e){}
+  socket.emit("setAvatar",{id:id});
+}
+
 function renderLobby(){
   $("lobbyCode").textContent=S.code;
+  renderAvatarPicker();
   var r=$("roster"); r.innerHTML="";
   S.players.forEach(function(p){
     var tags=[]; if(p.bot)tags.push("bot"); if(p.seat===S.you)tags.push("you");
+    var url=avatarUrl(p.seat);
     var d=document.createElement("div");
-    d.innerHTML='<span class="dot'+(p.connected?"":" off")+'"></span><span>'+esc(p.name)+'</span>'+
+    d.innerHTML='<span class="dot'+(p.connected?"":" off")+'"></span>'+
+      (url?'<img class="rav" src="'+esc(url)+'" alt="">':'')+
+      '<span>'+esc(p.name)+'</span>'+
       (tags.length?'<span class="meta">'+tags.join(" \u00b7 ")+'</span>':"");
     r.appendChild(d);
   });
@@ -553,7 +625,9 @@ function renderTable(){
     var p=(S.players||[]).find(function(x){return x.seat===s.seat})||{};
     var extra = s.place>=0 ? '<span class="place">'+ORD[s.place]+'</span>'
               : (p.connected===false?'<span class="away">away</span>':'');
-    el.innerHTML='<div class="stand">'+figureSVG()+
+    var av=avatarUrl(s.seat);
+    var who = av ? '<img class="av" src="'+esc(av)+'" alt="">' : figureSVG();
+    el.innerHTML='<div class="stand">'+who+
       '<div class="plate"><span class="n">'+esc(s.name)+(s.seat===S.you?" (you)":"")+'</span>'+
       '<span class="c">'+s.count+'</span>'+extra+'</div></div>';
     plane.appendChild(el);
