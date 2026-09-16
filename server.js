@@ -316,6 +316,26 @@ io.on("connection", (socket) => {
     }
   });
 
+  socket.on("nudge", () => {
+    const r = room();
+    if (!r || r.phase !== "playing" || !r.game) return;
+    const from = bySocket(r, socket.id);
+    if (from < 0) return;
+    const turn = G.whoseTurn(r.game);
+    if (turn === null || turn === from) return;
+    const target = r.players[turn];
+    if (!target || target.bot) return;
+    const now = Date.now();
+    if (r.lastNudge && now - r.lastNudge < 8000) return;   // one nudge per table per 8s
+    r.lastNudge = now;
+    sys(r, `${r.players[from].name} nudged ${target.name}`);
+    if (target.socketId) {
+      const s = io.sockets.sockets.get(target.socketId);
+      if (s) s.emit("nudged", { from: r.players[from].name });
+    }
+    emitAll(r);
+  });
+
   socket.on("chat", ({ text } = {}) => {
     const r = room();
     if (!r) return;
