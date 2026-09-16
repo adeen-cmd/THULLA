@@ -12,9 +12,9 @@ const { Server } = require("socket.io");
 const G = require("./game");
 
 const PORT = process.env.PORT || 3000;
-const TURN_MS = +process.env.TURN_MS || 45000;      // auto-play if a player stalls this long
-const RESOLVE_MS = +process.env.RESOLVE_MS || 1900; // hold a finished trick on screen before clearing
-const BOT_MS = +process.env.BOT_MS || 900;          // bot thinking time
+const TURN_MS = +process.env.TURN_MS || 60000;      // auto-play if a player stalls this long
+const RESOLVE_MS = +process.env.RESOLVE_MS || 3200; // hold a finished trick on screen before clearing
+const BOT_MS = +process.env.BOT_MS || 1800;          // bot thinking time
 const DROP_MS = +process.env.DROP_MS || 6000;       // grace before auto-playing a dropped player
 const EMPTY_ROOM_MS = 1000 * 60 * 30;
 
