@@ -5,6 +5,7 @@
  */
 
 const path = require("path");
+const fs = require("fs");
 const http = require("http");
 const crypto = require("crypto");
 const express = require("express");
@@ -22,9 +23,39 @@ const MIN_SEATS = 3;
 const MAX_SEATS = 6;
 const BOT_NAMES = ["Ali", "Sara", "Zoya", "Bilal", "Hina", "Imran"];
 
+const AVATAR_DIR = path.join(__dirname, "public", "avatars");
+function loadAvatars() {
+  try {
+    return fs.readdirSync(AVATAR_DIR)
+      .filter((f) => /\.(png|jpe?g|webp|gif)$/i.test(f))
+      .sort()
+      .map((f) => ({ id: f.replace(/\.[^.]+$/, ""), url: "/avatars/" + encodeURIComponent(f) }));
+  } catch (e) { return []; }
+}
+const AVATARS = loadAvatars();
+console.log(`avatars found: ${AVATARS.length}${AVATARS.length ? " (" + AVATARS.map(a => a.id).join(", ") + ")" : ""}`);
+
 const app = express();
-app.use(express.static(path.join(__dirname, "public")));
+
+// Serve the client from public/, falling back to the repo root in case the
+// folder structure got flattened when the files were uploaded.
+const CLIENT_DIRS = [path.join(__dirname, "public"), __dirname];
+for (const d of CLIENT_DIRS) app.use(express.static(d));
+
 app.get("/healthz", (_req, res) => res.send("ok"));
+
+app.get("/", (_req, res) => {
+  for (const d of CLIENT_DIRS) {
+    const f = path.join(d, "index.html");
+    if (fs.existsSync(f)) return res.sendFile(f);
+  }
+  const listing = CLIENT_DIRS.map((d) => {
+    let items;
+    try { items = fs.readdirSync(d).join(", "); } catch (e) { items = "(no such folder)"; }
+    return d + "\n  " + items;
+  }).join("\n\n");
+  res.status(500).type("text").send("index.html not found.\n\n" + listing);
+});
 
 const server = http.createServer(app);
 const io = new Server(server);
@@ -80,7 +111,9 @@ function view(room, seat) {
     isHost: seat !== null && room.players[seat] && room.players[seat].token === room.hostToken,
     players: room.players.map((p, i) => ({
       seat: i, name: p.name, bot: !!p.bot, connected: !!p.connected || !!p.bot,
+      avatar: p.avatar || null,
     })),
+    avatars: AVATARS,
     feed: room.feed.slice(-40),
     tally: room.tally,
     minSeats: MIN_SEATS,
@@ -314,6 +347,17 @@ io.on("connection", (socket) => {
       fail(res.error);
       socket.emit("state", view(r, seat)); // resync a client that got out of step
     }
+  });
+
+  socket.on("setAvatar", ({ id } = {}) => {
+    const r = room();
+    if (!r) return;
+    const i = bySocket(r, socket.id);
+    if (i < 0) return;
+    if (id === null || id === undefined || id === "") r.players[i].avatar = null;
+    else if (AVATARS.some((a) => a.id === id)) r.players[i].avatar = id;
+    else return;
+    emitAll(r);
   });
 
   socket.on("nudge", () => {
